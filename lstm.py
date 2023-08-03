@@ -11,6 +11,14 @@ import contextily as cx
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 
+# Check for GPU availability
+if tf.config.experimental.list_physical_devices("GPU"):
+    device = tf.test.gpu_device_name()
+    print(f'Found GPU at: {device}')
+else:
+    device = "/CPU:0"
+    print("No GPU found, using CPU.")
+
 epsg = 3035
 
 # Load Response Variable
@@ -72,34 +80,34 @@ def pad_or_truncate_sequence(sequence, sequence_length):
 train_data_padded = [pad_or_truncate_sequence(dynamic_input, sequence_length) for dynamic_input, static_input in train_data]
 train_data_padded_static = [pad_or_truncate_sequence(static_input, sequence_length) for dynamic_input, static_input in train_data]
 
-# Define the LSTM model using the Functional API
-num_dynamic_vars = 4
-num_static_vars = 6
+with tf.device(device):
+    # Define the LSTM model using the Functional API
+    num_dynamic_vars = 4
+    num_static_vars = 6
 
-# Input layers
-dynamic_input = tf.keras.layers.Input(shape=(sequence_length, num_dynamic_vars), dtype=tf.float64, name='dynamic_input')
-static_input = tf.keras.layers.Input(shape=(sequence_length, num_static_vars), dtype=tf.float64, name='static_input')
+    # Input layers
+    dynamic_input = tf.keras.layers.Input(shape=(sequence_length, num_dynamic_vars), dtype=tf.float64, name='dynamic_input')
+    static_input = tf.keras.layers.Input(shape=(sequence_length, num_static_vars), dtype=tf.float64, name='static_input')
+    static_lstm = tf.keras.layers.LSTM(64)(static_input)
+    # LSTM layers for each input
+    dynamic_lstm = tf.keras.layers.LSTM(64)(dynamic_input)
+    static_lstm = tf.keras.layers.LSTM(64)(static_input)
 
-# LSTM layers for each input
-dynamic_lstm = tf.keras.layers.LSTM(64)(dynamic_input)
-static_lstm = tf.keras.layers.LSTM(64)(static_input)
+    # Concatenate LSTM outputs
+    combined_lstm = tf.keras.layers.concatenate([dynamic_lstm, static_lstm])
 
-# Concatenate LSTM outputs
-combined_lstm = tf.keras.layers.concatenate([dynamic_lstm, static_lstm])
+    # Additional layers
+    dense_layer = tf.keras.layers.Dense(32, activation='relu')(combined_lstm)
+    output_layer = tf.keras.layers.Dense(2, activation='relu', name='output')(dense_layer)  # Output layer with 2 units for d_h and d_v predictions
+    # output_layer = tf.keras.layers.Dense(2, name='output')(dense_layer)  # Output layer with 2 units for d_h and d_v predictions
 
-# Additional layers
-dense_layer = tf.keras.layers.Dense(32, activation='relu')(combined_lstm)
-output_layer = tf.keras.layers.Dense(2, activation='relu', name='output')(dense_layer)  # Output layer with 2 units for d_h and d_v predictions
-# output_layer = tf.keras.layers.Dense(2, name='output')(dense_layer)  # Output layer with 2 units for d_h and d_v predictions
+    # Create the model
+    model = tf.keras.Model(inputs=[dynamic_input, static_input], outputs=output_layer)
 
-# Create the model
-model = tf.keras.Model(inputs=[dynamic_input, static_input], outputs=output_layer)
+    # Compile the model with mean_absolute_error loss
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    model.compile(optimizer=optimizer, loss='mean_absolute_error')
 
-# Compile the model with mean_absolute_error loss
-optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-model.compile(optimizer=optimizer, loss='mean_absolute_error')
-
-# Create the generator function
 def data_generator():
     for i in range(len(train_data)):
         dynamic_input = tf.convert_to_tensor(train_data_padded[i], dtype=tf.float64)
