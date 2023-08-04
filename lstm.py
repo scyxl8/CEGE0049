@@ -10,16 +10,19 @@ import rasterio
 import contextily as cx
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
+from keras.models import Sequential
+from keras.layers import LSTM, Dense
+from keras.initializers import HeNormal
+from keras.layers import BatchNormalization
 
-# Check for GPU availability
-if tf.config.experimental.list_physical_devices("GPU"):
-    device = tf.test.gpu_device_name()
-    print(f'Found GPU at: {device}')
-else:
-    device = "/CPU:0"
-    print("No GPU found, using CPU.")
 
 epsg = 3035
+
+# Check if GPU is available
+if tf.config.list_physical_devices('GPU'):
+    print("GPU is available")
+else:
+    print("Training on CPU")
 
 # Load Response Variable
 response = xr.open_dataset('small/insxr_small.nc')  # Y
@@ -33,94 +36,83 @@ sttvars = xr.open_dataset('small/sttvars_small.nc')  # X_s
 # load Geospatial Reference
 su = gpd.read_file('small/su_filtered_small.gpkg').to_crs(epsg=epsg)
 
-# Convert xarray datasets to pandas DataFrames
-response_df = response.to_dataframe().reset_index()
-dynvars_df = dynvars.to_dataframe().reset_index()
-sttvars_df = sttvars.to_dataframe().reset_index()
+# Convert the Xarray datasets to Pandas DataFrames
+response_data = response.to_dataframe().reset_index()
+dynamic_data = dynvars.to_dataframe().reset_index()
+static_data = sttvars.to_dataframe().reset_index()
 
-# Function to create data batches
-def create_data_batches(X_t, X_s, Y, sequence_length, batch_size):
-    data = []
-    target = []
-    for i in range(len(Y) - sequence_length + 1):
-        dynamic_input = X_t[i:i + sequence_length]
-        static_input = X_s[i:i + sequence_length]
-        # Check for nodata variables in dynamic and static inputs
-        if np.isnan(dynamic_input).any() or np.isnan(static_input).any() or np.isnan(Y[i + sequence_length - 1]).any():
-            continue  # Skip this data point if it contains nodata variables
-        data.append([dynamic_input, static_input])
-        target.append(Y[i + sequence_length - 1])
-    return data, target
+response_data.dropna(inplace=True)
+dynamic_data.dropna(inplace=True)
+static_data.dropna(inplace=True)
 
-# Hyperparameters
-sequence_length = 365
-batch_size = 32
-learning_rate = 0.0001
-epochs = 50
+# Standardize the data
+from sklearn.preprocessing import StandardScaler
 
-# Prepare data
-X_t_values, X_s_values = dynvars_df[['lai', 'precp', 'temp', 'twss']].values, sttvars_df[['Slope', 'Elevation', 'tanurve', 'Aspect', 'profCurv', 'ruggedness']].values
-Y_values = response_df[['d_h', 'd_v']].values
+scaler = StandardScaler()
+response_data[['d_h', 'd_v']] = scaler.fit_transform(response_data[['d_h', 'd_v']])
+dynamic_data[['lai', 'precp', 'temp', 'twss']] = scaler.fit_transform(dynamic_data[['lai', 'precp', 'temp', 'twss']])
+static_data[['Slope', 'Elevation', 'tanurve', 'Aspect', 'profCurv', 'ruggedness']] = scaler.fit_transform(static_data[['Slope', 'Elevation', 'tanurve', 'Aspect', 'profCurv', 'ruggedness']])
 
-# Data normalization
-scaler = MinMaxScaler()
-X_t_values_normalized = scaler.fit_transform(X_t_values)
-X_s_values_normalized = scaler.fit_transform(X_s_values)
+# Merge the data using 'cat' as the primary key
+final_data = pd.merge(response_data, dynamic_data, on=['time', 'cat'])
+final_data = pd.merge(final_data, static_data, on=['cat'])
 
-# Proceed with data preparation and model training as before using the normalized data
-train_data, train_target = create_data_batches(X_t_values_normalized, X_s_values_normalized, Y_values, sequence_length, batch_size)
+# Sorting by time and cat
+final_data = final_data.sort_values(by=['time', 'cat'])
 
-# Pad or truncate sequences to ensure consistent length
-def pad_or_truncate_sequence(sequence, sequence_length):
-    if len(sequence) < sequence_length:
-        return np.vstack([sequence, np.zeros((sequence_length - len(sequence), sequence.shape[1]))])
-    else:
-        return sequence[:sequence_length]
+print("Finish prepocessing data")
 
-train_data_padded = [pad_or_truncate_sequence(dynamic_input, sequence_length) for dynamic_input, static_input in train_data]
-train_data_padded_static = [pad_or_truncate_sequence(static_input, sequence_length) for dynamic_input, static_input in train_data]
+# Sequence length
+sequence_length = 30
 
-with tf.device(device):
-    # Define the LSTM model using the Functional API
-    num_dynamic_vars = 4
-    num_static_vars = 6
+# Splitting the data into train, validation, and test
+train_data = final_data[:int(len(final_data) * 0.7)]
+val_data = final_data[int(len(final_data) * 0.7):int(len(final_data) * 0.85)]
+test_data = final_data[int(len(final_data) * 0.85):]
 
-    # Input layers
-    dynamic_input = tf.keras.layers.Input(shape=(sequence_length, num_dynamic_vars), dtype=tf.float64, name='dynamic_input')
-    static_input = tf.keras.layers.Input(shape=(sequence_length, num_static_vars), dtype=tf.float64, name='static_input')
-    static_lstm = tf.keras.layers.LSTM(64)(static_input)
-    # LSTM layers for each input
-    dynamic_lstm = tf.keras.layers.LSTM(64)(dynamic_input)
-    static_lstm = tf.keras.layers.LSTM(64)(static_input)
+print("Finish splitting data")
 
-    # Concatenate LSTM outputs
-    combined_lstm = tf.keras.layers.concatenate([dynamic_lstm, static_lstm])
+# Define a function to create sequences
+def create_sequences(data, sequence_length):
+    data_values = data.drop(columns=['time', 'cat']).values
+    sequences = []
+    for i in range(0, len(data_values) - sequence_length, sequence_length):
+        seq = data_values[i:i+sequence_length]
+        sequences.append(seq)
+    return np.array(sequences)
 
-    # Additional layers
-    dense_layer = tf.keras.layers.Dense(32, activation='relu')(combined_lstm)
-    output_layer = tf.keras.layers.Dense(2, activation='relu', name='output')(dense_layer)  # Output layer with 2 units for d_h and d_v predictions
-    # output_layer = tf.keras.layers.Dense(2, name='output')(dense_layer)  # Output layer with 2 units for d_h and d_v predictions
+# Create sequences for training, validation, and testing
+X_train = create_sequences(train_data, sequence_length)[:, :-1, :]
+y_train = create_sequences(train_data, sequence_length)[:, -1, :2]
+X_val = create_sequences(val_data, sequence_length)[:, :-1, :]
+y_val = create_sequences(val_data, sequence_length)[:, -1, :2]
+X_test = create_sequences(test_data, sequence_length)[:, :-1, :]
+y_test = create_sequences(test_data, sequence_length)[:, -1, :2]
 
-    # Create the model
-    model = tf.keras.Model(inputs=[dynamic_input, static_input], outputs=output_layer)
+print("Finish creating sequences")
 
-    # Compile the model with mean_absolute_error loss
-    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-    model.compile(optimizer=optimizer, loss='mean_absolute_error')
+# Build the LSTM model
+model = Sequential()
+model.add(LSTM(50, activation='relu', input_shape=(sequence_length-1, X_train.shape[-1])))
+model.add(Dense(20, activation='relu'))
+model.add(Dense(2)) # Predicting d_h and d_v
 
-def data_generator():
-    for i in range(len(train_data)):
-        dynamic_input = tf.convert_to_tensor(train_data_padded[i], dtype=tf.float64)
-        static_input = tf.convert_to_tensor(train_data_padded_static[i], dtype=tf.float64)
-        target = tf.convert_to_tensor(train_target[i], dtype=tf.float64)
-        yield (dynamic_input, static_input), target
+# Compile the model
+model.compile(optimizer='adam', loss='mse')
 
-# Create the dataset from the generator
-train_dataset = tf.data.Dataset.from_generator(data_generator, output_signature=(
-    ((tf.TensorSpec(shape=(sequence_length, num_dynamic_vars), dtype=tf.float64),
-      tf.TensorSpec(shape=(sequence_length, num_static_vars), dtype=tf.float64)),
-    tf.TensorSpec(shape=(2,), dtype=tf.float64))
-)).batch(batch_size)
+print("Finish defining the model")
 
 # Train the model
-model.fit(train_dataset, epochs=epochs)
+model.fit(X_train, y_train, epochs=100, batch_size=64, validation_data=(X_val, y_val))
+
+print("Finish training")
+
+# Making predictions for the next sequence
+last_sequence = final_data.groupby('cat').tail(sequence_length-1).drop(columns=['time', 'cat']).values.reshape(len(final_data['cat'].unique()), sequence_length-1, -1)
+next_prediction = model.predict(last_sequence)
+
+print("Next sequence prediction: ")
+print(next_prediction)
+print("Finish prediction")
+
+print(model.summary)
