@@ -109,19 +109,25 @@ model.fit(X_train, y_train, epochs=100, batch_size=64, validation_data=(X_val, y
 print("Finish training")
 
 # Making predictions for the next sequence
-last_sequence = final_data.groupby('cat').tail(sequence_length-1).drop(columns=['time', 'cat']).values.reshape(len(final_data['cat'].unique()), sequence_length-1, -1)
-y_pred = model.predict(last_sequence)
+# last_sequence = final_data.groupby('cat').tail(sequence_length-1).drop(columns=['time', 'cat']).values.reshape(len(final_data['cat'].unique()), sequence_length-1, -1)
+# y_pred = model.predict(last_sequence)
+y_pred = model.predict(X_test)
 
 print("Finish prediction")
 
-# Flatten predictions and actual values for computing correlation
-y_pred = y_pred.flatten()
-y_test_flat = y_test.flatten()
+# Reshape y_test and y_pred to 1D arrays
+y_test_dh = y_test[:, 0].flatten()
+y_pred_dh = y_pred[:, 0].flatten()
 
-# Compute correlation coefficient
-corr_coeff = np.corrcoef(y_pred, y_test_flat)[0, 1]
+y_test_dv = y_test[:, 1].flatten()
+y_pred_dv = y_pred[:, 1].flatten()
 
-print('Correlation coefficient: ', corr_coeff)
+# Compute correlation coefficients
+corr_dh = np.corrcoef(y_test_dh, y_pred_dh)[0, 1]
+corr_dv = np.corrcoef(y_test_dv, y_pred_dv)[0, 1]
+
+print("Correlation coefficient for d_h: ", corr_dh)
+print("Correlation coefficient for d_v: ", corr_dv)
 
 # Get 'd_v' predictions
 d_v_predictions = y_pred[:, 1]
@@ -132,8 +138,8 @@ avg_rate_of_deformation = np.mean(d_v_predictions)
 print("Average rate of vertical deformation: ", avg_rate_of_deformation)
 
 # Evaluate the model
-# test_loss = model.evaluate(X_test, y_test)
-# print(f"Test Loss: {test_loss}")
+test_loss = model.evaluate(X_test, y_test)
+print(f"Test Loss: {test_loss}")
 
 mse, mae = model.evaluate(X_test, y_test, verbose=0)
 
