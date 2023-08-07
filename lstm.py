@@ -14,7 +14,7 @@ from keras.models import Sequential
 from keras.layers import LSTM, Dense
 from keras.initializers import HeNormal
 from keras.layers import BatchNormalization
-
+from sklearn.preprocessing import StandardScaler
 
 epsg = 3035
 
@@ -36,6 +36,8 @@ sttvars = xr.open_dataset('small/sttvars_small.nc')  # X_s
 # load Geospatial Reference
 su = gpd.read_file('small/su_filtered_small.gpkg').to_crs(epsg=epsg)
 
+print("Finish loading data")
+
 # Convert the Xarray datasets to Pandas DataFrames
 response_data = response.to_dataframe().reset_index()
 dynamic_data = dynvars.to_dataframe().reset_index()
@@ -46,8 +48,6 @@ dynamic_data.dropna(inplace=True)
 static_data.dropna(inplace=True)
 
 # Standardize the data
-from sklearn.preprocessing import StandardScaler
-
 scaler = StandardScaler()
 response_data[['d_h', 'd_v']] = scaler.fit_transform(response_data[['d_h', 'd_v']])
 dynamic_data[['lai', 'precp', 'temp', 'twss']] = scaler.fit_transform(dynamic_data[['lai', 'precp', 'temp', 'twss']])
@@ -98,7 +98,8 @@ model.add(Dense(20, activation='relu'))
 model.add(Dense(2)) # Predicting d_h and d_v
 
 # Compile the model
-model.compile(optimizer='adam', loss='mse')
+# model.compile(optimizer='adam', loss='mse')
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
 
 print("Finish defining the model")
 
@@ -109,10 +110,35 @@ print("Finish training")
 
 # Making predictions for the next sequence
 last_sequence = final_data.groupby('cat').tail(sequence_length-1).drop(columns=['time', 'cat']).values.reshape(len(final_data['cat'].unique()), sequence_length-1, -1)
-next_prediction = model.predict(last_sequence)
+y_pred = model.predict(last_sequence)
 
-print("Next sequence prediction: ")
-print(next_prediction)
 print("Finish prediction")
 
-print(model.summary)
+# Flatten predictions and actual values for computing correlation
+y_pred = y_pred.flatten()
+y_test_flat = y_test.flatten()
+
+# Compute correlation coefficient
+corr_coeff = np.corrcoef(y_pred, y_test_flat)[0, 1]
+
+print('Correlation coefficient: ', corr_coeff)
+
+# Get 'd_v' predictions
+d_v_predictions = y_pred[:, 1]
+
+# Compute the average rate of vertical deformation
+avg_rate_of_deformation = np.mean(d_v_predictions)
+
+print("Average rate of vertical deformation: ", avg_rate_of_deformation)
+
+# Evaluate the model
+# test_loss = model.evaluate(X_test, y_test)
+# print(f"Test Loss: {test_loss}")
+
+mse, mae = model.evaluate(X_test, y_test, verbose=0)
+
+# calculate the RMSE
+rmse = np.sqrt(mse)
+
+print('Root Mean Squared Error on test set: ', rmse)
+print('Mean Absolute Error on test set: ', mae)
