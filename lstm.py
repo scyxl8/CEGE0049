@@ -9,12 +9,14 @@ from pathlib import Path
 import rasterio
 import contextily as cx
 import tensorflow as tf
-from sklearn.preprocessing import MinMaxScaler
+# from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import LSTM, Dense
 from keras.initializers import HeNormal
 from keras.layers import BatchNormalization
 from sklearn.preprocessing import StandardScaler
+from keras.layers import Dropout
+from sklearn.model_selection import train_test_split
 
 epsg = 3035
 
@@ -43,6 +45,7 @@ response_data = response.to_dataframe().reset_index()
 dynamic_data = dynvars.to_dataframe().reset_index()
 static_data = sttvars.to_dataframe().reset_index()
 
+# Clear data with NaN value
 response_data.dropna(inplace=True)
 dynamic_data.dropna(inplace=True)
 static_data.dropna(inplace=True)
@@ -62,13 +65,14 @@ final_data = final_data.sort_values(by=['time', 'cat'])
 
 print("Finish prepocessing data")
 
-# Sequence length
-sequence_length = 30
+# # Splitting the data into train, validation, and test
+# train_data = final_data[:int(len(final_data) * 0.7)]
+# val_data = final_data[int(len(final_data) * 0.7):int(len(final_data) * 0.85)]
+# test_data = final_data[int(len(final_data) * 0.85):]
 
 # Splitting the data into train, validation, and test
-train_data = final_data[:int(len(final_data) * 0.7)]
-val_data = final_data[int(len(final_data) * 0.7):int(len(final_data) * 0.85)]
-test_data = final_data[int(len(final_data) * 0.85):]
+train_data, temp_data = train_test_split(final_data, test_size=0.2, shuffle=False)
+test_data, val_data = train_test_split(final_data, test_size=0.5, shuffle=False)
 
 print("Finish splitting data")
 
@@ -80,6 +84,9 @@ def create_sequences(data, sequence_length):
         seq = data_values[i:i+sequence_length]
         sequences.append(seq)
     return np.array(sequences)
+
+# Sequence length
+sequence_length = 30
 
 # Create sequences for training, validation, and testing
 X_train = create_sequences(train_data, sequence_length)[:, :-1, :]
@@ -93,9 +100,20 @@ print("Finish creating sequences")
 
 # Build the LSTM model
 model = Sequential()
-model.add(LSTM(50, activation='relu', input_shape=(sequence_length-1, X_train.shape[-1])))
+# First LSTM layer
+model.add(LSTM(50, activation='relu', return_sequences=True, input_shape=(sequence_length-1, X_train.shape[-1])))
+model.add(Dropout(0.2))
+# Second LSTM layer
+model.add(LSTM(50, activation='relu'))
+model.add(Dropout(0.2))
+# Two dense layers
 model.add(Dense(20, activation='relu'))
-model.add(Dense(2)) # Predicting d_h and d_v
+model.add(Dropout(0.2))
+model.add(Dense(2))
+
+# model.add(LSTM(50, activation='relu', input_shape=(sequence_length-1, X_train.shape[-1])))
+# model.add(Dense(20, activation='relu'))
+# model.add(Dense(2)) # Predicting d_h and d_v
 
 # Compile the model
 # model.compile(optimizer='adam', loss='mse')
@@ -138,9 +156,6 @@ avg_rate_of_deformation = np.mean(d_v_predictions)
 print("Average rate of vertical deformation: ", avg_rate_of_deformation)
 
 # Evaluate the model
-test_loss = model.evaluate(X_test, y_test)
-print(f"Test Loss: {test_loss}")
-
 mse, mae = model.evaluate(X_test, y_test, verbose=0)
 
 # calculate the RMSE
