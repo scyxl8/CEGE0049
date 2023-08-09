@@ -190,3 +190,38 @@ ax[1].set_ylabel('Predicted')
 
 plt.tight_layout()
 plt.show()
+
+# Merge the observed and predicted values with the GeoDataFrame
+# For the purpose of this demonstration, let's assume the last N rows of `su` correspond to the `y_test` values.
+N = y_test.shape[0]
+su_subset = su.tail(N).copy()
+su_subset['obs_d_h'] = y_test[:, 0]
+su_subset['pred_d_h'] = y_pred[:, 0]
+su_subset['obs_d_v'] = y_test[:, 1]
+su_subset['pred_d_v'] = y_pred[:, 1]
+
+# Plotting
+fig, axes = plt.subplots(2, 2, figsize=(20, 20))
+
+# Observed d_h map
+su_subset.to_crs(epsg=3857).plot(column='obs_d_h', ax=axes[0, 0], alpha=0.5, edgecolor="k", legend=True)
+axes[0, 0].set_title("Observed d_h")
+cx.add_basemap(axes[0, 0], source=cx.providers.CartoDB.Positron)
+
+# Predicted d_h map
+su_subset.to_crs(epsg=3857).plot(column='pred_d_h', ax=axes[0, 1], alpha=0.5, edgecolor="k", legend=True)
+axes[0, 1].set_title("Predicted d_h")
+cx.add_basemap(axes[0, 1], source=cx.providers.CartoDB.Positron)
+
+# Observed d_v map
+su_subset.to_crs(epsg=3857).plot(column='obs_d_v', ax=axes[1, 0], alpha=0.5, edgecolor="k", legend=True)
+axes[1, 0].set_title("Observed d_v")
+cx.add_basemap(axes[1, 0], source=cx.providers.CartoDB.Positron)
+
+# Predicted d_v map
+su_subset.to_crs(epsg=3857).plot(column='pred_d_v', ax=axes[1, 1], alpha=0.5, edgecolor="k", legend=True)
+axes[1, 1].set_title("Predicted d_v")
+cx.add_basemap(axes[1, 1], source=cx.providers.CartoDB.Positron)
+
+plt.tight_layout()
+plt.show()
