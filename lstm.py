@@ -17,6 +17,10 @@ from keras.layers import BatchNormalization
 from sklearn.preprocessing import StandardScaler
 from keras.layers import Dropout
 from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.linear_model import LinearRegression
+from matplotlib import colors
 
 epsg = 3035
 
@@ -163,3 +167,26 @@ rmse = np.sqrt(mse)
 
 print('Root Mean Squared Error on test set: ', rmse)
 print('Mean Absolute Error on test set: ', mae)
+
+# Fit linear regression for both components
+lr_d_h = LinearRegression()
+lr_d_v = LinearRegression()
+
+lr_d_h.fit(y_test[:, 0].reshape(-1, 1), y_pred[:, 0])
+lr_d_v.fit(y_test[:, 1].reshape(-1, 1), y_pred[:, 1])
+
+# Regression plots
+fig, ax = plt.subplots(1, 2, figsize=(14, 7))
+
+sns.regplot(x=y_test[:, 0], y=y_pred[:, 0], ax=ax[0], color='b', line_kws={'color':'r'})
+ax[0].set_title('Regression Plot for d_h')
+ax[0].set_xlabel('Observed')
+ax[0].set_ylabel('Predicted')
+
+sns.regplot(x=y_test[:, 1], y=y_pred[:, 1], ax=ax[1], color='b', line_kws={'color':'r'})
+ax[1].set_title('Regression Plot for d_v')
+ax[1].set_xlabel('Observed')
+ax[1].set_ylabel('Predicted')
+
+plt.tight_layout()
+plt.show()
