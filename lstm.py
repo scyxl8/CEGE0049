@@ -9,7 +9,7 @@ from pathlib import Path
 import rasterio
 import contextily as cx
 import tensorflow as tf
-from sklearn.preprocessing import MinMaxScaler
+# from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import LSTM, Dense
 from keras.initializers import HeNormal
@@ -21,7 +21,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.linear_model import LinearRegression
 from matplotlib import colors
-from tensorflow.keras.models import load_model
 
 epsg = 3035
 
@@ -51,9 +50,13 @@ dynamic_data = dynvars.to_dataframe().reset_index()
 static_data = sttvars.to_dataframe().reset_index()
 
 # Clear data with NaN value
-response_data.dropna(inplace=True)
-dynamic_data.dropna(inplace=True)
-static_data.dropna(inplace=True)
+response_data.fillna(method='ffill', inplace=True)
+dynamic_data.fillna(method='ffill', inplace=True)
+static_data.fillna(method='ffill', inplace=True)
+
+# Remove useless data
+date_to_remove = ['2016-12-30', '2017-12-31', '2019-12-27']
+response_data = response_data[~response_data['time'].isin(date_to_remove)]
 
 # Merge the data using 'cat' as the primary key
 final_data = pd.merge(response_data, dynamic_data, on=['time', 'cat'])
@@ -132,7 +135,7 @@ reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr
 model.fit(X_train, y_train, epochs=50, batch_size=64, validation_data=(X_val, y_val), callbacks=[reduce_lr])
 
 # Assuming your model is named 'model'
-model.save('my_model.h5')
+model.save('my_model_1.h5')
 
 y_pred = model.predict(X_test)
 
@@ -144,6 +147,7 @@ y_pred_ori = scaler_response.inverse_transform(y_pred)
 # If you also need to convert the normalized test labels back to their original scales:
 y_test_ori = scaler_response.inverse_transform(y_test)
 
+print("Finish converting")
 # Fit linear regression for both components
 lr_d_h = LinearRegression()
 lr_d_v = LinearRegression()
