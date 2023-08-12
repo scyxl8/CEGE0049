@@ -45,52 +45,6 @@ su = gpd.read_file('small/su_filtered_small.gpkg').to_crs(epsg=epsg)
 
 print("Finish loading data")
 
-import pandas as pd
-import geopandas as gpd
-import numpy as np
-import xarray as xr
-import os
-import rioxarray
-from tqdm.notebook import tqdm
-from pathlib import Path
-import rasterio
-import contextily as cx
-import tensorflow as tf
-# from sklearn.preprocessing import MinMaxScaler
-from keras.models import Sequential
-from keras.layers import LSTM, Dense
-from keras.initializers import HeNormal
-from keras.layers import BatchNormalization
-from sklearn.preprocessing import StandardScaler
-from keras.layers import Dropout
-from sklearn.model_selection import train_test_split
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.linear_model import LinearRegression
-from matplotlib import colors
-
-epsg = 3035
-
-# Check if GPU is available
-if tf.config.list_physical_devices('GPU'):
-    print("GPU is available")
-else:
-    print("Training on CPU")
-
-# Load Response Variable
-response = xr.open_dataset('small/insxr_small.nc')  # Y
-
-# Load Dynamic Variable
-dynvars = xr.open_dataset('small/dynvars_small.nc')  # X_t
-
-# Load Static Variable
-sttvars = xr.open_dataset('small/sttvars_small.nc')  # X_s
-
-# load Geospatial Reference
-su = gpd.read_file('small/su_filtered_small.gpkg').to_crs(epsg=epsg)
-
-print("Finish loading data")
-
 # Convert the Xarray datasets to Pandas DataFrames
 response_data = response.to_dataframe().reset_index()
 dynamic_data = dynvars.to_dataframe().reset_index()
