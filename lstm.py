@@ -50,9 +50,9 @@ dynamic_data = dynvars.to_dataframe().reset_index()
 static_data = sttvars.to_dataframe().reset_index()
 
 # Clear data with NaN value
-response_data.fillna(method='ffill', inplace=True)
-dynamic_data.fillna(method='ffill', inplace=True)
-static_data.fillna(method='ffill', inplace=True)
+response_data.fillna(response_data.median(), inplace=True)
+dynamic_data.fillna(dynamic_data.median(), inplace=True)
+static_data.fillna(static_data.median(), inplace=True)
 
 # Remove useless data
 date_to_remove = ['2016-12-30', '2017-12-31', '2019-12-27']
