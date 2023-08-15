@@ -9,7 +9,6 @@ from pathlib import Path
 import rasterio
 import contextily as cx
 import tensorflow as tf
-# from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import LSTM, Dense
 from keras.initializers import HeNormal
@@ -21,6 +20,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.linear_model import LinearRegression
 from matplotlib import colors
+import tensorflow as tf
+from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization
+from tensorflow.keras.optimizers import Nadam
+from tensorflow.keras.callbacks import ReduceLROnPlateau
+from tensorflow.keras.models import Sequential
 
 epsg = 3035
 
@@ -50,9 +54,9 @@ dynamic_data = dynvars.to_dataframe().reset_index()
 static_data = sttvars.to_dataframe().reset_index()
 
 # Clear data with NaN value
-response_data.fillna(response_data.median(), inplace=True)
-dynamic_data.fillna(dynamic_data.median(), inplace=True)
-static_data.fillna(static_data.median(), inplace=True)
+response_data.fillna(response_data.median(numeric_only=True), inplace=True)
+dynamic_data.fillna(dynamic_data.median(numeric_only=True), inplace=True)
+static_data.fillna(static_data.median(numeric_only=True), inplace=True)
 
 # Remove useless data
 date_to_remove = ['2016-12-30', '2017-12-31', '2019-12-27']
@@ -110,17 +114,24 @@ X_test, y_test = create_sequences(test_data, sequence_length)
 
 print("Finish creating sequences")
 
-from keras.layers import LSTM, Dense, Dropout, BatchNormalization
-from keras.optimizers import Nadam
-from keras.callbacks import ReduceLROnPlateau
-
 number_of_features = X_train.shape[2]
 
 model = Sequential()
-# Adjust LSTM layer to use cuDNN optimized implementation
-model.add(LSTM(64, activation='tanh', recurrent_activation='sigmoid', recurrent_dropout=0, unroll=False, use_bias=True, input_shape=(X_train.shape[1], number_of_features)))
+
+# First LSTM layer
+model.add(LSTM(64, activation='tanh', recurrent_activation='sigmoid', recurrent_dropout=0, unroll=False, use_bias=True, 
+               return_sequences=True,   # This argument ensures the output is a sequence
+               input_shape=(X_train.shape[1], number_of_features)))
+
 model.add(Dropout(0.2))
 model.add(BatchNormalization())
+
+# Second LSTM layer
+model.add(LSTM(64, activation='tanh', recurrent_activation='sigmoid', recurrent_dropout=0, unroll=False, use_bias=True))
+model.add(Dropout(0.2))
+model.add(BatchNormalization())
+
+# Dense layers
 model.add(Dense(32, activation='relu'))
 model.add(Dropout(0.2))
 model.add(Dense(2))
@@ -131,23 +142,20 @@ model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
 # Consider using the ReduceLROnPlateau callback for dynamic learning rate adjustments
 reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=0.0001)
 
-# Train the model
-model.fit(X_train, y_train, epochs=50, batch_size=64, validation_data=(X_val, y_val), callbacks=[reduce_lr])
+with tf.device('/cpu:0'):
 
-# Assuming your model is named 'model'
-model.save('my_model_1.h5')
+    # Train the model
+    model.fit(X_train, y_train, epochs=50, batch_size=64, validation_data=(X_val, y_val), callbacks=[reduce_lr])
+
+print("Finish training")
+
+# Save the model
+model.save('my_model_2.h5')
 
 y_pred = model.predict(X_test)
 
 print("Finish predicting")
 
-# Convert normalized predictions to original scale
-y_pred_ori = scaler_response.inverse_transform(y_pred)
-
-# If you also need to convert the normalized test labels back to their original scales:
-y_test_ori = scaler_response.inverse_transform(y_test)
-
-print("Finish converting")
 # Fit linear regression for both components
 lr_d_h = LinearRegression()
 lr_d_v = LinearRegression()
@@ -193,3 +201,47 @@ rmse = np.sqrt(mse)
 
 print('Root Mean Squared Error on test set: ', rmse)
 print('Mean Absolute Error on test set: ', mae)
+
+# Reshape the arrays
+y_test_reshaped = y_test_ori.reshape(6352, 30, 2)
+y_pred_reshaped = y_pred_ori.reshape(6352, 30, 2)
+
+# Sum along the sequence length axis
+y_test_summed = y_test_reshaped.sum(axis=1)
+y_pred_summed = y_pred_reshaped.sum(axis=1)
+
+# Merge the observed and predicted values with the GeoDataFrame
+# For the purpose of this demonstration, let's assume the last N rows of `su` correspond to the `y_test` values.
+N = y_test_summed.shape[0]
+su_subset = su.tail(N).copy()
+su_subset['obs_d_h'] = y_test_summed[:, 0]
+su_subset['pred_d_h'] = y_pred_summed[:, 0]
+su_subset['obs_d_v'] = y_test_summed[:, 1]
+su_subset['pred_d_v'] = y_pred_summed[:, 1]
+
+# Plotting
+fig, axes = plt.subplots(2, 2, figsize=(20, 20))
+
+# Observed d_h map
+su_subset.to_crs(epsg=3857).plot(column='obs_d_h', ax=axes[0, 0], alpha=0.5, edgecolor="k", legend=True)
+axes[0, 0].set_title("Observed d_h")
+cx.add_basemap(axes[0, 0], source=cx.providers.CartoDB.Positron)
+
+# Predicted d_h map
+su_subset.to_crs(epsg=3857).plot(column='pred_d_h', ax=axes[0, 1], alpha=0.5, edgecolor="k", legend=True)
+axes[0, 1].set_title("Predicted d_h")
+cx.add_basemap(axes[0, 1], source=cx.providers.CartoDB.Positron)
+
+# Observed d_v map
+su_subset.to_crs(epsg=3857).plot(column='obs_d_v', ax=axes[1, 0], alpha=0.5, edgecolor="k", legend=True)
+axes[1, 0].set_title("Observed d_v")
+cx.add_basemap(axes[1, 0], source=cx.providers.CartoDB.Positron)
+
+# Predicted d_v map
+su_subset.to_crs(epsg=3857).plot(column='pred_d_v', ax=axes[1, 1], alpha=0.5, edgecolor="k", legend=True)
+axes[1, 1].set_title("Predicted d_v")
+cx.add_basemap(axes[1, 1], source=cx.providers.CartoDB.Positron)
+
+plt.tight_layout()
+plt.show()
+
