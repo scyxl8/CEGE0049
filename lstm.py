@@ -145,12 +145,17 @@ reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr
 with tf.device('/cpu:0'):
 
     # Train the model
-    model.fit(X_train, y_train, epochs=50, batch_size=64, validation_data=(X_val, y_val), callbacks=[reduce_lr])
+    history = model.fit(X_train, y_train, epochs=50, batch_size=64, validation_data=(X_val, y_val), callbacks=[reduce_lr])
 
 print("Finish training")
 
-# Save the model
+# Save the model and history
 model.save('my_model_2.h5')
+
+# Convert the history.history dict to a DataFrame
+history_df = pd.DataFrame(history.history)
+history_df.to_csv('training_history.csv', index=False)
+
 
 y_pred = model.predict(X_test)
 
