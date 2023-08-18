@@ -25,6 +25,7 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization
 from tensorflow.keras.optimizers import Nadam
 from tensorflow.keras.callbacks import ReduceLROnPlateau
 from tensorflow.keras.models import Sequential
+import pywt
 
 epsg = 3035
 
@@ -250,3 +251,23 @@ cx.add_basemap(axes[1, 1], source=cx.providers.CartoDB.Positron)
 plt.tight_layout()
 plt.show()
 
+# Extract d_h and d_v for a single 'cat' for simplification
+sample_data = final_data[final_data['cat'] == final_data['cat'].iloc[5]].copy()
+sample_data.sort_values(by=['time'], inplace=True)
+
+def plot_wavelet_transform(data, title):
+    # Continuous Wavelet Transform
+    widths = np.arange(1, 61)  # considering sequence lengths from 1 to 60
+    cwtmatr, freqs = pywt.cwt(data, widths, 'morl')
+
+    # Plot
+    plt.figure(figsize=(12, 4))
+    plt.imshow(np.abs(cwtmatr), aspect='auto', extent=[0, len(data), 1, 60], cmap='jet')
+    plt.colorbar(label='Magnitude')
+    plt.ylabel('Sequence Length')
+    plt.title(f'Wavelet Transform of {title}')
+    plt.show()
+
+# Apply wavelet transform to d_h and d_v
+plot_wavelet_transform(sample_data['d_h'], 'd_h')
+plot_wavelet_transform(sample_data['d_v'], 'd_v')
