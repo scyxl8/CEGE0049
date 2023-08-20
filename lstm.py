@@ -271,3 +271,51 @@ def plot_wavelet_transform(data, title):
 # Apply wavelet transform to d_h and d_v
 plot_wavelet_transform(sample_data['d_h'], 'd_h')
 plot_wavelet_transform(sample_data['d_v'], 'd_v')
+
+# Reshape the arrays
+y_test_reshaped = y_test_ori.reshape(6352, 30, 2)
+y_pred_reshaped = y_pred_ori.reshape(6352, 30, 2)
+
+# Sum along the sequence length axis
+y_test_summed = y_test_reshaped.sum(axis=1)
+y_pred_summed = y_pred_reshaped.sum(axis=1)
+
+# Merge the observed and predicted values with the GeoDataFrame
+# For the purpose of this demonstration, let's assume the last N rows of `su` correspond to the `y_test` values.
+N = y_test_summed.shape[0]
+su_subset = su.tail(N).copy()
+su_subset['obs_d_h'] = y_test_summed[:, 0]
+su_subset['pred_d_h'] = y_pred_summed[:, 0]
+su_subset['obs_d_v'] = y_test_summed[:, 1]
+su_subset['pred_d_v'] = y_pred_summed[:, 1]
+
+# Plotting
+fig, axes = plt.subplots(2, 2, figsize=(20, 20))
+vmin_value_dh = -100
+vmax_value_dh = 100
+
+vmin_value_dv= -400
+vmax_value_dv= 0
+
+# Observed d_h map
+su_subset.to_crs(epsg=3857).plot(column='obs_d_h', ax=axes[0, 0], alpha=0.5, edgecolor="k", legend=True, vmin=vmin_value_dh, vmax=vmax_value_dh)
+axes[0, 0].set_title("Observed sum(d_h)")
+cx.add_basemap(axes[0, 0], source=cx.providers.CartoDB.Positron)
+
+# Predicted d_h map
+su_subset.to_crs(epsg=3857).plot(column='pred_d_h', ax=axes[0, 1], alpha=0.5, edgecolor="k", legend=True, vmin=vmin_value, vmax=vmax_value)
+axes[0, 1].set_title("Predicted sum(d_h)")
+cx.add_basemap(axes[0, 1], source=cx.providers.CartoDB.Positron)
+
+# Observed d_v map
+su_subset.to_crs(epsg=3857).plot(column='obs_d_v', ax=axes[1, 0], alpha=0.5, edgecolor="k", legend=True, vmin=vmin_value_dv, vmax=vmax_value_dv)
+axes[1, 0].set_title("Observed sum(d_v)")
+cx.add_basemap(axes[1, 0], source=cx.providers.CartoDB.Positron)
+
+# Predicted d_v map
+su_subset.to_crs(epsg=3857).plot(column='pred_d_v', ax=axes[1, 1], alpha=0.5, edgecolor="k", legend=True, vmin=vmin_value_dv, vmax=vmax_value_dv)
+axes[1, 1].set_title("Predicted sum(d_v)")
+cx.add_basemap(axes[1, 1], source=cx.providers.CartoDB.Positron)
+
+plt.tight_layout()
+plt.show()
