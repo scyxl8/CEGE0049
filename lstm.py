@@ -115,6 +115,14 @@ X_test, y_test = create_sequences(test_data, sequence_length)
 
 print("Finish creating sequences")
 
+# from keras.layers import SimpleRNN, Dense
+
+# model = Sequential()
+# model.add(SimpleRNN(units=100, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])))
+# model.add(SimpleRNN(units=100, return_sequences=True))
+# model.add(SimpleRNN(units=100))
+# model.add(Dense(units=2))
+
 number_of_features = X_train.shape[2]
 
 model = Sequential()
